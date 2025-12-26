@@ -119,6 +119,11 @@
     <string name="search">便签</string>
     <string name="datetime_dialog_ok">设置</string>
     <string name="datetime_dialog_cancel">取消</string>
+
+    <string name="info_recording_start">开始录音</string>
+    <string name="info_recording_stop">录音已停止</string>
+    <string name="error_recording_failed">录音失败</string>
+
     <plurals name="search_results_title">
         <item quantity="other"><xliff:g id="NUMBER">%1$s</xliff:g> 条符合“<xliff:g id="SEARCH">%2$s</xliff:g>”的搜索结果</item>
     </plurals>

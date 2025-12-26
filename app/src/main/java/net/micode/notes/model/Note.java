@@ -96,6 +96,16 @@ public class Note {
         mNoteData.setCallData(key, value);
     }
 
+    // [新增] 代理方法：设置音频数据 ID
+    public void setAudioDataId(long id) {
+        mNoteData.setAudioDataId(id);
+    }
+
+    // [新增] 代理方法：设置音频具体数据（如路径、时长）
+    public void setAudioData(String key, String value) {
+        mNoteData.setAudioData(key, value);
+    }
+
     public boolean isLocalModified() {
         return mNoteDiffValues.size() > 0 || mNoteData.isLocalModified();
     }
@@ -141,15 +151,22 @@ public class Note {
 
         private static final String TAG = "NoteData";
 
+        // [新增] 音频数据 ID 和 ContentValues
+        private long mAudioDataId;
+        private ContentValues mAudioDataValues;
+
         public NoteData() {
             mTextDataValues = new ContentValues();
             mCallDataValues = new ContentValues();
             mTextDataId = 0;
             mCallDataId = 0;
+            //
+            mAudioDataValues = new ContentValues();
+            mAudioDataId = 0;
         }
 
         boolean isLocalModified() {
-            return mTextDataValues.size() > 0 || mCallDataValues.size() > 0;
+            return mTextDataValues.size() > 0 || mCallDataValues.size() > 0||mAudioDataValues.size() > 0;
         }
 
         void setTextDataId(long id) {
@@ -166,6 +183,14 @@ public class Note {
             mCallDataId = id;
         }
 
+        // [新增] 设置音频 ID
+        void setAudioDataId(long id) {
+            if (id <= 0) {
+                throw new IllegalArgumentException("Audio data id should larger than 0");
+            }
+            mAudioDataId = id;
+        }
+
         void setCallData(String key, String value) {
             mCallDataValues.put(key, value);
             mNoteDiffValues.put(NoteColumns.LOCAL_MODIFIED, 1);
@@ -174,6 +199,13 @@ public class Note {
 
         void setTextData(String key, String value) {
             mTextDataValues.put(key, value);
+            mNoteDiffValues.put(NoteColumns.LOCAL_MODIFIED, 1);
+            mNoteDiffValues.put(NoteColumns.MODIFIED_DATE, System.currentTimeMillis());
+        }
+
+        // [新增] 设置音频数据 Values
+        void setAudioData(String key, String value) {
+            mAudioDataValues.put(key, value);
             mNoteDiffValues.put(NoteColumns.LOCAL_MODIFIED, 1);
             mNoteDiffValues.put(NoteColumns.MODIFIED_DATE, System.currentTimeMillis());
         }
@@ -231,6 +263,29 @@ public class Note {
                     operationList.add(builder.build());
                 }
                 mCallDataValues.clear();
+            }
+            // [新增] 音频数据的批量插入/更新逻辑
+            if(mAudioDataValues.size() > 0) {
+                mAudioDataValues.put(DataColumns.NOTE_ID, noteId);
+                if (mAudioDataId == 0) {
+                    // 插入新音频数据
+                    mAudioDataValues.put(DataColumns.MIME_TYPE, Notes.AudioNote.CONTENT_ITEM_TYPE);
+                    Uri uri = context.getContentResolver().insert(Notes.CONTENT_DATA_URI, mAudioDataValues);
+                    try {
+                        setAudioDataId(Long.valueOf(uri.getPathSegments().get(1)));
+                    } catch (NumberFormatException e) {
+                        Log.e(TAG, "Insert new audio data fail with noteId" + noteId);
+                        mAudioDataValues.clear();
+                        return null;
+                    }
+                } else {
+                    // 更新现有音频数据
+                    builder = ContentProviderOperation.newUpdate(ContentUris.withAppendedId(
+                            Notes.CONTENT_DATA_URI, mAudioDataId));
+                    builder.withValues(mAudioDataValues);
+                    operationList.add(builder.build());
+                }
+                mAudioDataValues.clear();
             }
 
             if (operationList.size() > 0) {
