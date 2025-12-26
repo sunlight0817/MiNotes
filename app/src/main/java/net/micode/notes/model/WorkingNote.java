@@ -125,6 +125,8 @@ public class WorkingNote {
     }
 
     private void loadNote() {
+
+
         Cursor cursor = mContext.getContentResolver().query(
                 ContentUris.withAppendedId(Notes.CONTENT_NOTE_URI, mNoteId), NOTE_PROJECTION, null,
                 null, null);
@@ -146,7 +148,14 @@ public class WorkingNote {
         loadNoteData();
     }
 
+    private java.util.ArrayList<String> mAudioPaths = new java.util.ArrayList<String>();
     private void loadNoteData() {
+        // [新增] 清空列表，防止重复
+        if (mAudioPaths == null) {
+            mAudioPaths = new java.util.ArrayList<String>();
+        } else {
+            mAudioPaths.clear();
+        }
         Cursor cursor = mContext.getContentResolver().query(Notes.CONTENT_DATA_URI, DATA_PROJECTION,
                 DataColumns.NOTE_ID + "=?", new String[] {
                     String.valueOf(mNoteId)
@@ -162,6 +171,12 @@ public class WorkingNote {
                         mNote.setTextDataId(cursor.getLong(DATA_ID_COLUMN));
                     } else if (DataConstants.CALL_NOTE.equals(type)) {
                         mNote.setCallDataId(cursor.getLong(DATA_ID_COLUMN));
+                    } else if (Notes.AudioNote.CONTENT_ITEM_TYPE.equals(type)) {
+                        // [关键] 读取音频数据
+                        // 确保您在 Notes.java 里定义了 AudioNote.CONTENT_ITEM_TYPE
+                        // 如果没有定义 AudioNote 类，也可以直接用字符串 "vnd.android.cursor.item/audio_note"
+                        String path = cursor.getString(DATA_CONTENT_COLUMN);
+                        mAudioPaths.add(path);
                     } else {
                         Log.d(TAG, "Wrong note type with type:" + type);
                     }
@@ -174,6 +189,10 @@ public class WorkingNote {
         }
     }
 
+    // 3. 提供 Getter 方法给 Activity 使用
+    public java.util.List<String> getAudioPaths() {
+        return mAudioPaths;
+    }
     public static WorkingNote createEmptyNote(Context context, long folderId, int widgetId,
             int widgetType, int defaultBgColorId) {
         WorkingNote note = new WorkingNote(context, folderId);
@@ -294,6 +313,57 @@ public class WorkingNote {
         mNote.setNoteValue(NoteColumns.PARENT_ID, String.valueOf(Notes.ID_CALL_RECORD_FOLDER));
     }
 
+    // [新增] 提供给 Activity 的保存接口
+    public void convertToAudioNote(String audioPath, long duration) {
+        mNote.setAudioData(Notes.DataColumns.CONTENT, audioPath);
+        mNote.setAudioData(Notes.AudioNote.DURATION, String.valueOf(duration));
+        mNote.setNoteValue(Notes.NoteColumns.TYPE, String.valueOf(Notes.TYPE_NOTE)); // 保持为普通便签类型，或定义新类型
+
+        // 同步更新内存中的列表！
+        if (mAudioPaths == null) {
+            mAudioPaths = new java.util.ArrayList<String>();
+        }
+        mAudioPaths.add(audioPath);
+    }
+
+    /**
+     * [新增] 删除指定的语音数据
+     * @param path 语音文件的绝对路径
+     * @return 是否删除成功
+     */
+    public boolean discardAudioData(String path) {
+        // 1. 从内存缓存列表中移除 (防止 UI 刷新时复现)
+        if (mAudioPaths != null) {
+            mAudioPaths.remove(path);
+        }
+
+        // 2. 从数据库中彻底移除
+        // 逻辑：删除表 'data' 中同时满足 note_id, mime_type 和 content(路径) 的记录
+        if (mNoteId > 0) {
+            String selection = Notes.DataColumns.NOTE_ID + "=? AND " +
+                    Notes.DataColumns.MIME_TYPE + "=? AND " +
+                    Notes.DataColumns.CONTENT + "=?";
+
+            String[] selectionArgs = new String[] {
+                    String.valueOf(mNoteId),
+                    Notes.AudioNote.CONTENT_ITEM_TYPE, // 之前定义的音频类型常量
+                    path
+            };
+
+            try {
+                int count = mContext.getContentResolver().delete(
+                        Notes.CONTENT_DATA_URI,
+                        selection,
+                        selectionArgs
+                );
+                return count > 0;
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to delete audio data from db", e);
+                return false;
+            }
+        }
+        return false;
+    }
     public boolean hasClockAlert() {
         return (mAlertDate > 0 ? true : false);
     }

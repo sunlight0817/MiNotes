@@ -49,6 +49,8 @@ public class Notes {
     public static class DataConstants {
         public static final String NOTE = TextNote.CONTENT_ITEM_TYPE;
         public static final String CALL_NOTE = CallNote.CONTENT_ITEM_TYPE;
+        // [新增] 定义音频便签的常量引用
+        public static final String AUDIO_NOTE = AudioNote.CONTENT_ITEM_TYPE;
     }
 
     /**
@@ -281,5 +283,14 @@ public class Notes {
         public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/call_note";
 
         public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY + "/call_note");
+    }
+    // [新增] 定义 AudioNote 静态内部类，映射数据库列
+    public static final class AudioNote implements DataColumns {
+        // 复用 DATA1 字段存储录音时长
+        public static final String DURATION = DATA1;
+
+        public static final String CONTENT_TYPE = "vnd.android.cursor.dir/audio_note";
+        public static final String CONTENT_ITEM_TYPE = "vnd.android.cursor.item/audio_note";
+        public static final Uri CONTENT_URI = Uri.parse("content://" + AUTHORITY + "/audio_note");
     }
 }

@@ -31,6 +31,8 @@ import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.graphics.Paint;
+import android.media.MediaPlayer;
+import android.media.MediaRecorder;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
 import android.text.Editable;
@@ -71,6 +73,7 @@ import net.micode.notes.ui.NoteEditText.OnTextViewChangeListener;
 import net.micode.notes.widget.NoteWidgetProvider_2x;
 import net.micode.notes.widget.NoteWidgetProvider_4x;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
@@ -157,6 +160,289 @@ public class NoteEditActivity extends Activity implements OnClickListener,
     private String mUserQuery;
     private Pattern mPattern;
 
+    private static final int REQUEST_CODE_RECORD_AUDIO = 101;
+    private MediaRecorder mRecorder;
+    private boolean mIsRecording = false;
+    private String mRecordFileName; // 临时存储路径
+    // [新增] 成员变量
+    private ImageView mBtnMic;
+    private LinearLayout mAudioListContainer;
+    private MediaPlayer mPlayer;;
+    private String mCurrentAudioPath; // 当前正在录制的文件路径
+
+    // 在 NoteEditActivity 中添加此方法
+    private long getAudioDuration(String path) {
+        android.media.MediaPlayer mp = new android.media.MediaPlayer();
+        try {
+            mp.setDataSource(path);
+            mp.prepare();
+            return mp.getDuration(); // 返回时长（毫秒）
+        } catch (Exception e) {
+            android.util.Log.e(TAG, "Get audio duration failed", e);
+            return 0;
+        } finally {
+            mp.release();
+        }
+    }
+    // [新增] 停止录音
+    private void startRecording() {
+        // 1. 准备文件路径 (建议存放在 getExternalFilesDir 或 getCacheDir)
+        mCurrentAudioPath = getExternalFilesDir(null).getAbsolutePath() + "/" + System.currentTimeMillis() + ".amr";
+
+        mRecorder = new MediaRecorder();
+        try {
+            mRecorder.setAudioSource(MediaRecorder.AudioSource.MIC);
+            mRecorder.setOutputFormat(MediaRecorder.OutputFormat.AMR_NB);
+            mRecorder.setOutputFile(mCurrentAudioPath);
+            mRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AMR_NB);
+
+            mRecorder.prepare();
+            mRecorder.start();
+
+            mIsRecording = true;
+
+            // [交互] 改变按钮状态，提示正在录音 (例如换成红色图标)
+            mBtnMic.setImageResource(android.R.drawable.ic_media_pause);
+            showToast(R.string.info_recording_start); // 需在 strings.xml 定义
+
+        } catch (IOException e) {
+            Log.e(TAG, "Recording failed");
+            mIsRecording = false;
+        }
+    }
+
+    // 修改 NoteEditActivity.java
+
+    private void stopRecording() {
+        if (mRecorder != null) {
+            try {
+                mRecorder.stop();
+                Log.d(TAG, "MediaRecorder stopped successfully");
+            } catch (Exception e) {
+                // 捕获所有异常，防止录音时间过短导致崩溃
+                Log.e(TAG, "MediaRecorder stop failed: " + e.getMessage());
+                // 如果停止失败，可能文件未生成，需做清理
+                mRecorder.release();
+                mRecorder = null;
+                mIsRecording = false;
+                mBtnMic.setImageResource(android.R.drawable.ic_btn_speak_now);
+                return;
+            }
+
+            mRecorder.release();
+            mRecorder = null;
+            mIsRecording = false;
+
+            // 恢复图标
+            mBtnMic.setImageResource(android.R.drawable.ic_btn_speak_now);
+
+            // 获取时长（如果文件不存在或损坏，这里返回 0）
+            long duration = getAudioDuration(mCurrentAudioPath);
+            Log.d(TAG, "Audio recorded: " + mCurrentAudioPath + ", duration: " + duration);
+
+            if (duration > 0) {
+                // 1. 保存数据 (确保 WorkingNote 已按第一步修改)
+                mWorkingNote.convertToAudioNote(mCurrentAudioPath, duration);
+
+                // 2. 触发保存到数据库
+                saveNote();
+
+                // 3. [关键] 直接在界面添加视图
+                // 确保调用的是您定义的那个方法 (addAudioView 或 addAudioViewRow)
+                addAudioViewRow(mCurrentAudioPath);
+            } else {
+                Toast.makeText(this, "录音时间太短或失败", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+
+    private void refreshAudioList() {
+
+        android.util.Log.d(TAG, "refreshAudioList: 准备刷新音频列表");
+        // 1. 清空现有的视图，防止重复添加
+        mAudioListContainer.removeAllViews();
+
+        // 2. 获取 WorkingNote 中的音频数据
+        java.util.List<String> paths = mWorkingNote.getAudioPaths();
+
+        // [Log] 2. 打印获取到的数据情况
+        if (paths == null) {
+            android.util.Log.w(TAG, "refreshAudioList: getAudioPaths() 返回 null");
+        } else {
+            android.util.Log.d(TAG, "refreshAudioList: 获取到音频数量: " + paths.size());
+            if (paths.size() > 0) {
+                android.util.Log.d(TAG, "refreshAudioList: 列表内容: " + paths.toString());
+            }
+        }
+
+        // 3. 遍历并在界面上创建视图
+        if (paths != null && paths.size() > 0) {
+            mAudioListContainer.setVisibility(View.VISIBLE);
+            // [Log] 3. 开始循环创建视图
+
+            for (String path : paths) {
+                // 复用之前的 addAudioView 方法，但需要稍微改造一下该方法
+                // 让它只负责添加 UI，不负责重复保存数据
+                android.util.Log.d(TAG, "refreshAudioList: 正在添加路径 -> " + path);
+                addAudioViewRow(path);
+
+            }
+        } else {
+            mAudioListContainer.setVisibility(View.GONE);
+            android.util.Log.d(TAG, "refreshAudioList: 没有音频数据，隐藏容器");
+        }
+    }
+
+    // 这是一个纯 UI 添加方法，不涉及保存逻辑
+    private void addAudioViewRow(final String audioPath) {
+        // [Log] 1. 开始构建 UI 条目
+        android.util.Log.d(TAG, "addAudioViewRow: 开始构建 UI, 路径=" + audioPath);
+
+        try {
+            // 1. 创建父布局
+            final LinearLayout audioItem = new LinearLayout(this);
+            audioItem.setOrientation(LinearLayout.HORIZONTAL);
+            // [调试色] 设置一个明显的背景色（浅灰色边框效果），确位置
+            audioItem.setBackgroundColor(0xFFE0E0E0);
+            // 设置内边距
+            audioItem.setPadding(30, 20, 30, 20);
+            // 设置外边距（让条目之间有间隔）
+            LinearLayout.LayoutParams itemParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            itemParams.setMargins(0, 10, 0, 10);
+            audioItem.setLayoutParams(itemParams);
+
+
+            // [Log] 2. 创建子 View
+            android.util.Log.d(TAG, "addAudioViewRow: 创建播放按钮和文本");
+
+
+            // 2. 创建播放按钮 (使用 Button 而不是 ImageView，防止图标看不见)
+            final android.widget.Button btnPlay = new android.widget.Button(this);
+            btnPlay.setText("▶"); // 使用文字符号代替图标
+            btnPlay.setTextSize(18);
+            btnPlay.setTextColor(android.graphics.Color.BLACK);
+            // 移除默认按钮背景，设为透明或简单颜色
+            btnPlay.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            LinearLayout.LayoutParams btnParams = new LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT);
+            audioItem.addView(btnPlay, btnParams);
+
+
+
+            String fileName = null;
+
+
+
+            // 3. 创建文件名文本
+            TextView tvInfo = new TextView(this);
+            fileName = new java.io.File(audioPath).getName();
+            // [Log] 3. 打印文件名确认
+            android.util.Log.d(TAG, "addAudioViewRow: 显示文件名: " + fileName);
+            tvInfo.setText(" 语音: " + fileName);
+            tvInfo.setTextSize(16);
+            // [关键] 强制设为黑色，防止变白
+            tvInfo.setTextColor(android.graphics.Color.BLACK);
+            tvInfo.setGravity(android.view.Gravity.CENTER_VERTICAL);
+
+            // 让文本占据剩余空间
+            LinearLayout.LayoutParams textParams = new LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1);
+            textParams.setMargins(20, 0, 0, 0); // 左边距
+            audioItem.addView(tvInfo, textParams);
+
+            // 4. 创建删除按钮 (使用 Button)
+            android.widget.Button btnDelete = new android.widget.Button(this);
+            btnDelete.setText("✕"); // 叉号符号
+            btnDelete.setTextSize(18);
+            btnDelete.setTextColor(android.graphics.Color.RED);
+            btnDelete.setBackgroundColor(android.graphics.Color.TRANSPARENT);
+            audioItem.addView(btnDelete);
+
+            // 5. 添加到容器
+            mAudioListContainer.addView(audioItem);
+            mAudioListContainer.setVisibility(View.VISIBLE);
+
+            // [Log] 4. 构建完成，打印容器当前子 View 数量
+            android.util.Log.d(TAG, "addAudioViewRow: UI 添加成功! 当前容器子 View 数量: " + mAudioListContainer.getChildCount());
+            android.util.Log.d(TAG, "addAudioViewRow: 容器可见性: " + (mAudioListContainer.getVisibility() == View.VISIBLE ? "VISIBLE" : "GONE/INVISIBLE"));
+
+            // --- 点击事件 ---
+            btnPlay.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    // 如果要切换图标，可以使用 btnPlay.setText("⏸")
+                    playAudio(audioPath, null); // 暂时传 null，不需要切换 ImageView 图标
+                }
+            });
+
+            btnDelete.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (mPlayer != null && mPlayer.isPlaying()) {
+                        mPlayer.stop();
+                        mPlayer.release();
+                        mPlayer = null;
+                    }
+                    mAudioListContainer.removeView(audioItem);
+                    if (mAudioListContainer.getChildCount() == 0) {
+                        mAudioListContainer.setVisibility(View.GONE);
+                    }
+                    mWorkingNote.discardAudioData(audioPath);
+                }
+            });
+
+        } catch (Exception e) {
+        // [Log] 5. 捕获可能的异常
+        android.util.Log.e(TAG, "addAudioViewRow: 创建 UI 时发生错误", e);
+    }
+    }
+    private void playAudio(String path, final ImageView btnPlay) {
+        if (mPlayer != null) {
+            mPlayer.release();
+            mPlayer = null;
+        }
+
+        mPlayer = new MediaPlayer();
+        try {
+            mPlayer.setDataSource(path);
+            mPlayer.prepare();
+            mPlayer.start();
+
+            // [交互] 切换为暂停图标 (此处简化演示，实际应处理暂停逻辑)
+            btnPlay.setImageResource(android.R.drawable.ic_media_pause);
+
+            mPlayer.setOnCompletionListener(new MediaPlayer.OnCompletionListener() {
+                @Override
+                public void onCompletion(MediaPlayer mp) {
+                    // 播放结束，恢复图标
+                    btnPlay.setImageResource(android.R.drawable.ic_media_play);
+                    mPlayer.release();
+                    mPlayer = null;
+                }
+            });
+
+        } catch (IOException e) {
+            Log.e(TAG, "Play audio failed");
+        }
+    }
+    // 重写 Activity 的 onRequestPermissionsResult 方法
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQUEST_CODE_RECORD_AUDIO) {
+            if (grantResults.length > 0 && grantResults[0] == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                // 用户点击了“允许”，开始录音
+                startRecording();
+            } else {
+                // 用户点击了“拒绝”，提示用户
+                Toast.makeText(this, "需要录音权限才能使用语音便签", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -297,6 +583,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
                         | DateUtils.FORMAT_SHOW_YEAR));
 
         showAlertHeader();
+        refreshAudioList();
         updateCharCount();
     }
 
@@ -375,6 +662,14 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         mNoteEditor = (EditText) findViewById(R.id.note_edit_view);
         mNoteEditorPanel = findViewById(R.id.sv_note_edit);
         mNoteBgColorSelector = findViewById(R.id.note_bg_color_selector);
+
+        // [新增] 绑定麦克风按钮
+        mBtnMic = (ImageView) findViewById(R.id.btn_mic);
+        mBtnMic.setOnClickListener(this);
+
+        // [新增] 绑定音频容器
+        mAudioListContainer = (LinearLayout) findViewById(R.id.note_audio_list);
+        // 如果 WorkingNote 中已有音频数据，需在此处加载并显示 (refreshAudioList)
         for (int id : sBgSelectorBtnsMap.keySet()) {
             ImageView iv = (ImageView) findViewById(id);
             iv.setOnClickListener(this);
@@ -411,6 +706,15 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         if(saveNote()) {
             Log.d(TAG, "Note data was saved with length:" + mWorkingNote.getContent().length());
         }
+        // 停止录音
+        if (mIsRecording) {
+            stopRecording();
+        }
+        // 停止播放
+        if (mPlayer != null) {
+            mPlayer.release();
+            mPlayer = null;
+        }
         clearSettingState();
     }
 
@@ -435,6 +739,22 @@ public class NoteEditActivity extends Activity implements OnClickListener,
 
     public void onClick(View v) {
         int id = v.getId();
+        if (id == R.id.btn_mic) {
+            if (!mIsRecording) {
+                // [完整逻辑] 检查权限
+                if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+                        != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    // 如果没有权限，向用户申请
+                    requestPermissions(new String[]{android.Manifest.permission.RECORD_AUDIO},
+                            REQUEST_CODE_RECORD_AUDIO);
+                } else {
+                    // 如果已有权限，直接开始
+                    startRecording();
+                }
+            } else {
+                stopRecording();
+            }
+        }
         if (id == R.id.btn_set_bg_color) {
             mNoteBgColorSelector.setVisibility(View.VISIBLE);
             findViewById(sBgSelectorSelectionMap.get(mWorkingNote.getBgColorId())).setVisibility(
