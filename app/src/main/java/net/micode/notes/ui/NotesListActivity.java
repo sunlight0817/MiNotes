@@ -414,7 +414,7 @@ public class NotesListActivity extends Activity implements OnClickListener, OnIt
         mBackgroundQueryHandler.startQuery(FOLDER_NOTE_LIST_QUERY_TOKEN, null,
                 Notes.CONTENT_NOTE_URI, NoteItemData.PROJECTION, selection, new String[] {
                     String.valueOf(mCurrentFolderId)
-                }, NoteColumns.TYPE + " DESC," + NoteColumns.MODIFIED_DATE + " DESC");
+                }, NoteColumns.IS_PINNED + " DESC," + NoteColumns.TYPE + " DESC," + NoteColumns.MODIFIED_DATE + " DESC");
     }
 
     private final class BackgroundQueryHandler extends AsyncQueryHandler {

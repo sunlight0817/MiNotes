@@ -48,6 +48,8 @@
     <string name="menu_search">Search</string>
     <string name="menu_delete">Delete</string>
     <string name="menu_move">Move to folder</string>
+    <string name="menu_pin">Pin</string>
+    <string name="menu_unpin">Unpin</string>
     <string name="menu_select_title">%d selected</string>
     <string name="menu_select_none">Nothing selected, the operation is invalid</string>
     <string name="menu_select_all">Select all</string>

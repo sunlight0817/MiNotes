@@ -165,6 +165,12 @@ public class Notes {
          * <P> Type : INTEGER (long) </P>
          */
         public static final String VERSION = "version";
+
+        /**
+         * Whether the note is pinned
+         * <P> Type : INTEGER (0 or 1) </P>
+         */
+        public static final String IS_PINNED = "is_pinned";
     }
 
     public interface DataColumns {
