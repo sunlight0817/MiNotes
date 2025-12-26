@@ -33,9 +33,11 @@ import android.content.SharedPreferences;
 import android.graphics.Paint;
 import android.os.Bundle;
 import android.preference.PreferenceManager;
+import android.text.Editable;
 import android.text.Spannable;
 import android.text.SpannableString;
 import android.text.TextUtils;
+import android.text.TextWatcher;
 import android.text.format.DateUtils;
 import android.text.style.BackgroundColorSpan;
 import android.util.Log;
@@ -80,6 +82,8 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         NoteSettingChangedListener, OnTextViewChangeListener {
     private class HeadViewHolder {
         public TextView tvModified;
+
+        public TextView tvCharCount;
 
         public ImageView ivAlertIcon;
 
@@ -292,11 +296,8 @@ public class NoteEditActivity extends Activity implements OnClickListener,
                         | DateUtils.FORMAT_NUMERIC_DATE | DateUtils.FORMAT_SHOW_TIME
                         | DateUtils.FORMAT_SHOW_YEAR));
 
-        /**
-         * TODO: Add the menu for setting alert. Currently disable it because the DateTimePicker
-         * is not ready
-         */
         showAlertHeader();
+        updateCharCount();
     }
 
     private void showAlertHeader() {
@@ -325,11 +326,6 @@ public class NoteEditActivity extends Activity implements OnClickListener,
     @Override
     protected void onSaveInstanceState(Bundle outState) {
         super.onSaveInstanceState(outState);
-        /**
-         * For new note without note id, we should firstly save it to
-         * generate a id. If the editing note is not worth saving, there
-         * is no id which is equivalent to create new note
-         */
         if (!mWorkingNote.existInDatabase()) {
             saveNote();
         }
@@ -371,6 +367,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         mHeadViewPanel = findViewById(R.id.note_title);
         mNoteHeaderHolder = new HeadViewHolder();
         mNoteHeaderHolder.tvModified = (TextView) findViewById(R.id.tv_modified_date);
+        mNoteHeaderHolder.tvCharCount = (TextView) findViewById(R.id.tv_char_count);
         mNoteHeaderHolder.ivAlertIcon = (ImageView) findViewById(R.id.iv_alert_icon);
         mNoteHeaderHolder.tvAlertDate = (TextView) findViewById(R.id.tv_alert_date);
         mNoteHeaderHolder.ibSetBgColor = (ImageView) findViewById(R.id.btn_set_bg_color);
@@ -390,15 +387,22 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         };
         mSharedPrefs = PreferenceManager.getDefaultSharedPreferences(this);
         mFontSizeId = mSharedPrefs.getInt(PREFERENCE_FONT_SIZE, ResourceParser.BG_DEFAULT_FONT_SIZE);
-        /**
-         * HACKME: Fix bug of store the resource id in shared preference.
-         * The id may larger than the length of resources, in this case,
-         * return the {@link ResourceParser#BG_DEFAULT_FONT_SIZE}
-         */
         if(mFontSizeId >= TextAppearanceResources.getResourcesSize()) {
             mFontSizeId = ResourceParser.BG_DEFAULT_FONT_SIZE;
         }
         mEditTextList = (LinearLayout) findViewById(R.id.note_edit_list);
+
+        mNoteEditor.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {
+                // Do nothing
+            }
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                updateCharCount();
+            }
+            public void afterTextChanged(Editable s) {
+                // Do nothing
+            }
+        });
     }
 
     @Override
@@ -417,7 +421,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         } else if (mWorkingNote.getWidgetType() == Notes.TYPE_WIDGET_4X) {
             intent.setClass(this, NoteWidgetProvider_4x.class);
         } else {
-            Log.e(TAG, "Unspported widget type");
+            Log.e(TAG, "Unsupported widget type");
             return;
         }
 
@@ -434,7 +438,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         if (id == R.id.btn_set_bg_color) {
             mNoteBgColorSelector.setVisibility(View.VISIBLE);
             findViewById(sBgSelectorSelectionMap.get(mWorkingNote.getBgColorId())).setVisibility(
-                    -                    View.VISIBLE);
+                    View.VISIBLE);
         } else if (sBgSelectorBtnsMap.containsKey(id)) {
             findViewById(sBgSelectorSelectionMap.get(mWorkingNote.getBgColorId())).setVisibility(
                     View.GONE);
@@ -578,16 +582,12 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         DateTimePickerDialog d = new DateTimePickerDialog(this, System.currentTimeMillis());
         d.setOnDateTimeSetListener(new OnDateTimeSetListener() {
             public void OnDateTimeSet(AlertDialog dialog, long date) {
-                mWorkingNote.setAlertDate(date	, true);
+                mWorkingNote.setAlertDate(date, true);
             }
         });
         d.show();
     }
 
-    /**
-     * Share note to apps that support {@link Intent#ACTION_SEND} action
-     * and {@text/plain} type
-     */
     private void sendTo(Context context, String info) {
         Intent intent = new Intent(Intent.ACTION_SEND);
         intent.putExtra(Intent.EXTRA_TEXT, info);
@@ -596,10 +596,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
     }
 
     private void createNewNote() {
-        // Firstly, save current editing notes
         saveNote();
-
-        // For safety, start a new NoteEditActivity
         finish();
         Intent intent = new Intent(this, NoteEditActivity.class);
         intent.setAction(Intent.ACTION_INSERT_OR_EDIT);
@@ -634,10 +631,6 @@ public class NoteEditActivity extends Activity implements OnClickListener,
     }
 
     public void onClockAlertChanged(long date, boolean set) {
-        /**
-         * User could set clock to an unsaved note, so before setting the
-         * alert clock, we should save the note first
-         */
         if (!mWorkingNote.existInDatabase()) {
             saveNote();
         }
@@ -653,11 +646,6 @@ public class NoteEditActivity extends Activity implements OnClickListener,
                 alarmManager.set(AlarmManager.RTC_WAKEUP, date, pendingIntent);
             }
         } else {
-            /**
-             * There is the condition that user has input nothing (the note is
-             * not worthy saving), we have no note id, remind the user that he
-             * should input something
-             */
             Log.e(TAG, "Clock alert setting error");
             showToast(R.string.error_note_empty_for_clock);
         }
@@ -691,14 +679,12 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         edit.append(text);
         edit.requestFocus();
         edit.setSelection(length);
+        updateCharCount();
     }
 
     public void onEditTextEnter(int index, String text) {
-        /**
-         * Should not happen, check for debug
-         */
         if(index > mEditTextList.getChildCount()) {
-            Log.e(TAG, "Index out of mEditTextList boundrary, should not happen");
+            Log.e(TAG, "Index out of mEditTextList boundary, should not happen");
         }
 
         View view = getListItem(text, index);
@@ -710,6 +696,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
             ((NoteEditText) mEditTextList.getChildAt(i).findViewById(R.id.et_edit_text))
                     .setIndex(i);
         }
+        updateCharCount();
     }
 
     private void switchToListMode(String text) {
@@ -727,6 +714,7 @@ public class NoteEditActivity extends Activity implements OnClickListener,
 
         mNoteEditor.setVisibility(View.GONE);
         mEditTextList.setVisibility(View.VISIBLE);
+        updateCharCount();
     }
 
     private Spannable getHighlightQueryResult(String fullText, String userQuery) {
@@ -787,24 +775,22 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         } else {
             mEditTextList.getChildAt(index).findViewById(R.id.cb_edit_item).setVisibility(View.GONE);
         }
+        updateCharCount();
     }
 
     public void onCheckListModeChanged(int oldMode, int newMode) {
         if (newMode == TextNote.MODE_CHECK_LIST) {
             switchToListMode(mNoteEditor.getText().toString());
         } else {
-            if (!getWorkingText()) {
-                mWorkingNote.setWorkingText(mWorkingNote.getContent().replace(TAG_UNCHECKED + " ",
-                        ""));
-            }
-            mNoteEditor.setText(getHighlightQueryResult(mWorkingNote.getContent(), mUserQuery));
+            String text = getWorkingText();
+            mNoteEditor.setText(getHighlightQueryResult(text, mUserQuery));
             mEditTextList.setVisibility(View.GONE);
             mNoteEditor.setVisibility(View.VISIBLE);
         }
+        updateCharCount();
     }
 
-    private boolean getWorkingText() {
-        boolean hasChecked = false;
+    private String getWorkingText() {
         if (mWorkingNote.getCheckListMode() == TextNote.MODE_CHECK_LIST) {
             StringBuilder sb = new StringBuilder();
             for (int i = 0; i < mEditTextList.getChildCount(); i++) {
@@ -813,41 +799,29 @@ public class NoteEditActivity extends Activity implements OnClickListener,
                 if (!TextUtils.isEmpty(edit.getText())) {
                     if (((CheckBox) view.findViewById(R.id.cb_edit_item)).isChecked()) {
                         sb.append(TAG_CHECKED).append(" ").append(edit.getText()).append("\n");
-                        hasChecked = true;
                     } else {
                         sb.append(TAG_UNCHECKED).append(" ").append(edit.getText()).append("\n");
                     }
                 }
             }
-            mWorkingNote.setWorkingText(sb.toString());
+            return sb.toString();
         } else {
-            mWorkingNote.setWorkingText(mNoteEditor.getText().toString());
+            return mNoteEditor.getText().toString();
         }
-        return hasChecked;
     }
 
     private boolean saveNote() {
-        getWorkingText();
+        String content = getWorkingText();
+        mWorkingNote.setWorkingText(content);
+        updateCharCount();
         boolean saved = mWorkingNote.saveNote();
         if (saved) {
-            /**
-             * There are two modes from List view to edit view, open one note,
-             * create/edit a node. Opening node requires to the original
-             * position in the list when back from edit view, while creating a
-             * new node requires to the top of the list. This code
-             * {@link #RESULT_OK} is used to identify the create/edit state
-             */
             setResult(RESULT_OK);
         }
         return saved;
     }
 
     private void sendToDesktop() {
-        /**
-         * Before send message to home, we should make sure that current
-         * editing note is exists in databases. So, for new note, firstly
-         * save it
-         */
         if (!mWorkingNote.existInDatabase()) {
             saveNote();
         }
@@ -867,11 +841,6 @@ public class NoteEditActivity extends Activity implements OnClickListener,
             showToast(R.string.info_note_enter_desktop);
             sendBroadcast(sender);
         } else {
-            /**
-             * There is the condition that user has input nothing (the note is
-             * not worthy saving), we have no note id, remind the user that he
-             * should input something
-             */
             Log.e(TAG, "Send to desktop error");
             showToast(R.string.error_note_empty_for_send_to_desktop);
         }
@@ -892,6 +861,15 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         Toast.makeText(this, resId, duration).show();
     }
 
+    private void updateCharCount() {
+        String content = getWorkingText();
+        // In checklist mode, the tags are part of the text, so we should remove them for an accurate count.
+        content = content.replace(TAG_CHECKED + " ", "");
+        content = content.replace(TAG_UNCHECKED + " ", "");
+        int count = content.length();
+        mNoteHeaderHolder.tvCharCount.setText(getString(R.string.char_count, count));
+    }
+            
     private boolean isNotePinned(long noteId) {
         ContentResolver resolver = getContentResolver();
         Cursor cursor = resolver.query(
