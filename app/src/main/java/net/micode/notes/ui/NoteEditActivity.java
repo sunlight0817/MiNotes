@@ -22,8 +22,11 @@ import android.app.AlertDialog;
 import android.app.PendingIntent;
 import android.app.SearchManager;
 import android.appwidget.AppWidgetManager;
+import android.content.ContentResolver;
 import android.content.ContentUris;
+import android.content.ContentValues;
 import android.content.Context;
+import android.database.Cursor;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -56,6 +59,7 @@ import android.widget.Toast;
 
 import net.micode.notes.R;
 import net.micode.notes.data.Notes;
+import net.micode.notes.data.Notes.NoteColumns;
 import net.micode.notes.data.Notes.TextNote;
 import net.micode.notes.model.WorkingNote;
 import net.micode.notes.model.WorkingNote.NoteSettingChangedListener;
@@ -506,6 +510,15 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         } else {
             menu.findItem(R.id.menu_delete_remind).setVisible(false);
         }
+        // 处理置顶菜单显示
+        if (mWorkingNote.existInDatabase()) {
+            boolean isPinned = isNotePinned(mWorkingNote.getNoteId());
+            menu.findItem(R.id.menu_pin).setVisible(!isPinned);
+            menu.findItem(R.id.menu_unpin).setVisible(isPinned);
+        } else {
+            menu.findItem(R.id.menu_pin).setVisible(false);
+            menu.findItem(R.id.menu_unpin).setVisible(false);
+        }
         return true;
     }
 
@@ -550,6 +563,14 @@ public class NoteEditActivity extends Activity implements OnClickListener,
                 break;
             case R.id.menu_delete_remind:
                 mWorkingNote.setAlertDate(0, false);
+                break;
+            case R.id.menu_pin:
+                pinNote(true);
+                invalidateOptionsMenu();
+                break;
+            case R.id.menu_unpin:
+                pinNote(false);
+                invalidateOptionsMenu();
                 break;
             default:
                 break;
@@ -847,5 +868,42 @@ public class NoteEditActivity extends Activity implements OnClickListener,
         content = content.replace(TAG_UNCHECKED + " ", "");
         int count = content.length();
         mNoteHeaderHolder.tvCharCount.setText(getString(R.string.char_count, count));
+    }
+            
+    private boolean isNotePinned(long noteId) {
+        ContentResolver resolver = getContentResolver();
+        Cursor cursor = resolver.query(
+                ContentUris.withAppendedId(Notes.CONTENT_NOTE_URI, noteId),
+                new String[]{NoteColumns.IS_PINNED},
+                null, null, null);
+        boolean isPinned = false;
+        if (cursor != null) {
+            try {
+                if (cursor.moveToFirst()) {
+                    int columnIndex = cursor.getColumnIndex(NoteColumns.IS_PINNED);
+                    if (columnIndex >= 0) {
+                        isPinned = cursor.getInt(columnIndex) > 0;
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error checking pin status: " + e.getMessage());
+            } finally {
+                cursor.close();
+            }
+        }
+        return isPinned;
+    }
+
+    private void pinNote(boolean pin) {
+        if (!mWorkingNote.existInDatabase()) {
+            return;
+        }
+        ContentResolver resolver = getContentResolver();
+        ContentValues values = new ContentValues();
+        values.put(NoteColumns.IS_PINNED, pin ? 1 : 0);
+        values.put(NoteColumns.LOCAL_MODIFIED, 1);
+        resolver.update(
+                ContentUris.withAppendedId(Notes.CONTENT_NOTE_URI, mWorkingNote.getNoteId()),
+                values, null, null);
     }
 }

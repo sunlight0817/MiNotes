@@ -49,4 +49,12 @@
     <item
         android:id="@+id/menu_delete_remind"
         android:title="@string/menu_remove_remind" />
+
+    <item
+        android:id="@+id/menu_pin"
+        android:title="@string/menu_pin" />
+
+    <item
+        android:id="@+id/menu_unpin"
+        android:title="@string/menu_unpin" />
 </menu>
